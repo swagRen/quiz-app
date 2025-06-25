@@ -40,8 +40,9 @@ def load_questions(file_path):
 
 def initialize_session_state(questions):
     """初始化会话状态"""
-    if 'selected_questions' not in st.session_state:
-        st.session_state.selected_questions = random.sample(questions, min(30, len(questions)))
+    # 强制重置问题选择
+    st.session_state.selected_questions = random.sample(questions, min(30, len(questions)))
+    
     if 'question_idx' not in st.session_state:
         st.session_state.question_idx = 0
     if 'user_answers' not in st.session_state:
@@ -163,32 +164,37 @@ def display_results():
             st.markdown(f"**正确答案:** {correct_answer}")
             st.markdown(f"**解析:** 题型: {question['type']} | 难度: {question['difficulty']}")
 
-    if st.button("重新开始测试"):
+    if st.button("重新开始测试", use_container_width=True):
         reset_quiz()
         st.experimental_rerun()
 
 def reset_quiz():
     """重置测试状态"""
-    st.session_state.pop('selected_questions', None)
-    st.session_state.pop('question_idx', None)
-    st.session_state.pop('user_answers', None)
-    st.session_state.pop('submitted', None)
-    st.session_state.pop('show_results', None)
+    keys = ['selected_questions', 'question_idx', 'user_answers', 'submitted', 'show_results']
+    for key in keys:
+        if key in st.session_state:
+            del st.session_state[key]
 
 def main():
     """主应用"""
     st.title("知识问答小程序")
     
+    # 添加醒目的重新开始按钮
+    if st.button("🔁 重新开始测试", use_container_width=True):
+        reset_quiz()
+        st.experimental_rerun()
+    
     # 加载问题
     questions = load_questions("questions.xlsx")
     
     # 初始化会话状态
-    initialize_session_state(questions)
+    if 'selected_questions' not in st.session_state:
+        initialize_session_state(questions)
     
     # 显示内容
-    if st.session_state.show_results:
+    if 'show_results' in st.session_state and st.session_state.show_results:
         display_results()
-    else:
+    elif 'selected_questions' in st.session_state:
         display_question()
         
         # 显示进度
