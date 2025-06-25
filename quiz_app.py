@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import random
 
-# 加载题库
 def load_questions(file_path):
     df = pd.read_excel(file_path, dtype=str).fillna('')
     questions = []
@@ -35,56 +34,29 @@ def load_questions(file_path):
         questions.append(current_question)
     return questions
 
+def display_question(q, q_idx):
+    st.write(f"**题 {q_idx + 1}/30:** {q['content']}  ({q['type']}, 难度: {q['difficulty']})")
 
-# 初始化 session_state
-def init_state():
-    if 'questions' not in st.session_state:
-        st.session_state.questions = []
-    if 'question_idx' not in st.session_state:
-        st.session_state.question_idx = 0
-    if 'score' not in st.session_state:
-        st.session_state.score = 0
-    if 'answers' not in st.session_state:
-        st.session_state.answers = []
-    if 'completed' not in st.session_state:
-        st.session_state.completed = False
-
-
-def start_new_round(all_questions):
-    st.session_state.questions = random.sample(all_questions, 30)
-    st.session_state.question_idx = 0
-    st.session_state.score = 0
-    st.session_state.answers = []
-    st.session_state.completed = False
-
-
-def display_question(q, idx):
-    st.write(f"### 第 {idx + 1} 题: {q['content']} ({q['type']}，难度: {q['difficulty']})")
-
-    key_prefix = f"q_{idx}"
-    user_answer = None
-    submitted = False
+    user_key = f"answer_{q_idx}"
 
     if q['type'] == '判断题':
-        user_answer = st.radio("选择答案", ['正确', '错误'], key=key_prefix)
-        submitted = st.button("提交", key=f"{key_prefix}_submit")
-
+        user_answer = st.radio("请选择：", ['正确', '错误'], key=user_key)
     elif q['type'] == '单选题':
         options = [opt['text'] for opt in q['options']]
-        user_answer = st.radio("选择答案", options, key=key_prefix)
-        submitted = st.button("提交", key=f"{key_prefix}_submit")
-
+        user_answer = st.radio("请选择：", options, key=user_key)
     elif q['type'] == '多选题':
         options = [opt['text'] for opt in q['options']]
-        user_answer = st.multiselect("选择答案", options, key=key_prefix)
-        submitted = st.button("提交", key=f"{key_prefix}_submit")
+        user_answer = st.multiselect("请选择：", options, key=user_key)
+    else:
+        st.warning("未知题型")
+        return
 
-    if submitted:
+    if st.button("提交", key=f"submit_{q_idx}"):
         correct = False
-        if q['type'] == '多选题':
-            correct = sorted(user_answer) == sorted(q['answer'])
-        else:
+        if q['type'] in ['判断题', '单选题']:
             correct = user_answer in q['answer']
+        elif q['type'] == '多选题':
+            correct = sorted(user_answer) == sorted(q['answer'])
 
         if correct:
             st.success("✅ 回答正确！")
@@ -99,39 +71,54 @@ def display_question(q, idx):
             'result': '正确' if correct else '错误'
         })
 
-        # 进入下一题
         if st.session_state.question_idx < 29:
             st.session_state.question_idx += 1
-            st.experimental_rerun()
         else:
             st.session_state.completed = True
-            st.experimental_rerun()
 
+        # 用标志触发刷新，防止 streamlit 错误
+        st.session_state.trigger_next = True
+
+def show_result():
+    st.header("🎉 答题完成")
+    st.success(f"你的得分：{st.session_state.score} / 30")
+    st.write(f"正确率：{st.session_state.score / 30 * 100:.2f}%")
+
+    st.subheader("详细答题记录")
+    for i, record in enumerate(st.session_state.answers):
+        st.write(f"**题 {i+1}**：{record['question']}")
+        st.write(f"- 你的答案：{record['your_answer']}")
+        st.write(f"- 正确答案：{record['correct_answer']}")
+        st.write(f"- 结果：{record['result']}")
+        st.markdown("---")
+
+    if st.button("🔄 开始新一轮答题"):
+        st.session_state.clear()
+        st.experimental_rerun()
 
 def main():
-    st.set_page_config(page_title="知识问答", layout="centered")
-    st.title("📚 知识问答小程序")
-    init_state()
+    st.set_page_config(page_title="知识问答小程序", layout="centered")
+    st.title("🧠 知识问答小程序")
 
-    questions = load_questions("questions.xlsx")
+    if "initialized" not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.question_idx = 0
+        st.session_state.score = 0
+        st.session_state.answers = []
+        st.session_state.completed = False
+        st.session_state.trigger_next = False
+        st.session_state.questions = random.sample(load_questions("questions.xlsx"), 30)
 
-    if not st.session_state.questions:
-        start_new_round(questions)
-
-    if st.session_state.completed:
-        st.success(f"🎉 本轮完成！得分: {st.session_state.score} / 30")
-        st.write("### 答题记录")
-        for i, record in enumerate(st.session_state.answers):
-            st.write(f"第 {i + 1} 题：{record['question']}")
-            st.write(f"你的答案：{record['your_answer']} | 正确答案：{record['correct_answer']} | 结果：{record['result']}")
-            st.markdown("---")
-        if st.button("🔁 开始新一轮答题"):
-            start_new_round(questions)
-            st.experimental_rerun()
-    else:
+    if not st.session_state.completed:
         current_question = st.session_state.questions[st.session_state.question_idx]
         display_question(current_question, st.session_state.question_idx)
+    else:
+        show_result()
 
+    # 安全触发 rerun（用于按钮回调后立即刷新页面）
+    if st.session_state.get("trigger_next", False):
+        st.session_state.trigger_next = False
+        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
