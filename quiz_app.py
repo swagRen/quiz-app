@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
 import random
+import time
 
 def load_questions(file_path):
     """从Excel加载问题"""
-    df = pd.read_excel(file_path, dtype=str).fillna('')
+    # 添加时间戳参数防止缓存
+    df = pd.read_excel(file_path + f"?t={time.time()}", dtype=str).fillna('')
     questions = []
     current_question = None
 
@@ -38,22 +40,32 @@ def load_questions(file_path):
         questions.append(current_question)
     return questions
 
-def initialize_session_state(questions):
-    """初始化会话状态"""
-    # 强制重置问题选择
-    st.session_state.selected_questions = random.sample(questions, min(30, len(questions)))
-    
+def select_random_questions(questions, num=30):
+    """随机选择指定数量的题目"""
+    return random.sample(questions, min(num, len(questions)))
+
+def initialize_session_state():
+    """初始化基础会话状态"""
     if 'question_idx' not in st.session_state:
         st.session_state.question_idx = 0
     if 'user_answers' not in st.session_state:
-        st.session_state.user_answers = [None] * len(st.session_state.selected_questions)
+        st.session_state.user_answers = []
     if 'submitted' not in st.session_state:
-        st.session_state.submitted = [False] * len(st.session_state.selected_questions)
+        st.session_state.submitted = []
     if 'show_results' not in st.session_state:
         st.session_state.show_results = False
 
-def display_question():
+def display_question(questions):
     """显示当前问题"""
+    # 确保已选择题目
+    if 'selected_questions' not in st.session_state:
+        st.session_state.selected_questions = select_random_questions(questions)
+    
+    # 确保答案数组大小匹配
+    if len(st.session_state.user_answers) != len(st.session_state.selected_questions):
+        st.session_state.user_answers = [None] * len(st.session_state.selected_questions)
+        st.session_state.submitted = [False] * len(st.session_state.selected_questions)
+    
     question = st.session_state.selected_questions[st.session_state.question_idx]
     
     st.subheader(f"题 {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)}")
@@ -109,7 +121,7 @@ def display_question():
                 st.experimental_rerun()
     with col2:
         if st.button("重新开始"):
-            reset_quiz()
+            reset_quiz(questions)
             st.experimental_rerun()
     with col3:
         if st.session_state.question_idx < len(st.session_state.selected_questions) - 1:
@@ -123,6 +135,9 @@ def display_question():
 
 def calculate_score():
     """计算得分"""
+    if 'selected_questions' not in st.session_state:
+        return 0
+    
     score = 0
     for i, question in enumerate(st.session_state.selected_questions):
         user_answer = st.session_state.user_answers[i]
@@ -142,7 +157,7 @@ def display_results():
     
     score = calculate_score()
     total = len(st.session_state.selected_questions)
-    percentage = score / total * 100
+    percentage = score / total * 100 if total > 0 else 0
     
     st.subheader(f"得分: {score}/{total} ({percentage:.1f}%)")
     st.progress(percentage/100)
@@ -165,42 +180,56 @@ def display_results():
             st.markdown(f"**解析:** 题型: {question['type']} | 难度: {question['difficulty']}")
 
     if st.button("重新开始测试", use_container_width=True):
-        reset_quiz()
+        reset_quiz(st.session_state.questions)
         st.experimental_rerun()
 
-def reset_quiz():
+def reset_quiz(questions):
     """重置测试状态"""
     keys = ['selected_questions', 'question_idx', 'user_answers', 'submitted', 'show_results']
     for key in keys:
         if key in st.session_state:
             del st.session_state[key]
+    
+    # 重新选择随机题目
+    st.session_state.selected_questions = select_random_questions(questions)
+    st.session_state.question_idx = 0
+    st.session_state.user_answers = [None] * len(st.session_state.selected_questions)
+    st.session_state.submitted = [False] * len(st.session_state.selected_questions)
+    st.session_state.show_results = False
 
 def main():
     """主应用"""
     st.title("知识问答小程序")
     
-    # 添加醒目的重新开始按钮
-    if st.button("🔁 重新开始测试", use_container_width=True):
-        reset_quiz()
-        st.experimental_rerun()
-    
-    # 加载问题
+    # 加载问题（添加时间戳防止缓存）
     questions = load_questions("questions.xlsx")
     
-    # 初始化会话状态
-    if 'selected_questions' not in st.session_state:
-        initialize_session_state(questions)
+    # 保存问题到会话状态，以便重置时使用
+    if 'questions' not in st.session_state:
+        st.session_state.questions = questions
+    
+    # 初始化基础会话状态
+    initialize_session_state()
+    
+    # 添加醒目的重新开始按钮
+    if st.button("🔁 重新开始测试", use_container_width=True):
+        reset_quiz(questions)
+        st.experimental_rerun()
     
     # 显示内容
     if 'show_results' in st.session_state and st.session_state.show_results:
         display_results()
-    elif 'selected_questions' in st.session_state:
-        display_question()
+    elif 'selected_questions' in st.session_state and st.session_state.selected_questions:
+        display_question(questions)
         
         # 显示进度
         progress = (st.session_state.question_idx + 1) / len(st.session_state.selected_questions)
         st.progress(progress)
         st.caption(f"已完成: {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)} 题")
+    else:
+        # 首次运行：选择题目并重新运行
+        st.session_state.selected_questions = select_random_questions(questions)
+        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
