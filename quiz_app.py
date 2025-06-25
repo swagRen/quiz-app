@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import random
 import os
+from io import BytesIO
 
 def load_questions():
     """从Excel加载问题"""
@@ -130,20 +131,22 @@ def display_question(questions):
         if st.session_state.question_idx > 0:
             if st.button("上一题"):
                 st.session_state.question_idx -= 1
-                st.experimental_rerun()
+                return True
     with col2:
         if st.button("重新开始"):
             reset_quiz(questions)
-            st.experimental_rerun()
+            return True
     with col3:
         if st.session_state.question_idx < len(st.session_state.selected_questions) - 1:
             if st.button("下一题"):
                 st.session_state.question_idx += 1
-                st.experimental_rerun()
+                return True
         else:
             if st.button("查看结果"):
                 st.session_state.show_results = True
-                st.experimental_rerun()
+                return True
+    
+    return False
 
 def calculate_score():
     """计算得分"""
@@ -193,7 +196,9 @@ def display_results():
 
     if st.button("重新开始测试", use_container_width=True):
         reset_quiz(st.session_state.questions)
-        st.experimental_rerun()
+        return True
+    
+    return False
 
 def reset_quiz(questions):
     """重置测试状态"""
@@ -223,22 +228,24 @@ def main():
     # 添加醒目的重新开始按钮
     if st.button("🔁 重新开始测试", use_container_width=True):
         reset_quiz(st.session_state.questions)
-        st.experimental_rerun()
     
     # 显示内容
     if 'show_results' in st.session_state and st.session_state.show_results:
-        display_results()
+        if display_results():
+            # 不需要显式重新运行，Streamlit 会自动处理
+            pass
     elif 'selected_questions' in st.session_state and st.session_state.selected_questions:
-        display_question(st.session_state.questions)
+        if display_question(st.session_state.questions):
+            # 不需要显式重新运行，Streamlit 会自动处理
+            pass
         
         # 显示进度
         progress = (st.session_state.question_idx + 1) / len(st.session_state.selected_questions)
         st.progress(progress)
         st.caption(f"已完成: {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)} 题")
     else:
-        # 首次运行：选择题目并重新运行
+        # 首次运行：选择题目
         st.session_state.selected_questions = select_random_questions(st.session_state.questions)
-        st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
