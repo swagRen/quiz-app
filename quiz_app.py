@@ -1,9 +1,25 @@
 import streamlit as st
 import pandas as pd
 import random
+import os
+from io import BytesIO
 
-def load_questions(file_path):
-    df = pd.read_excel(file_path, dtype=str).fillna('')
+def load_questions():
+    """从Excel加载问题"""
+    # 使用相对路径并检查文件是否存在
+    file_path = "questions.xlsx"
+    
+    # 如果文件不存在，显示错误信息
+    if not os.path.exists(file_path):
+        st.error(f"无法找到问题文件: {file_path}")
+        st.stop()
+    
+    try:
+        df = pd.read_excel(file_path, dtype=str).fillna('')
+    except Exception as e:
+        st.error(f"加载问题文件时出错: {str(e)}")
+        st.stop()
+    
     questions = []
     current_question = None
 
@@ -21,7 +37,10 @@ def load_questions(file_path):
                 'answer': []
             }
             if row['题型'] == '判断题':
-                current_question['answer'] = ['正确'] if row['正确答案'].strip() == '是' else ['错误']
+                if row['正确答案'].strip() == '是':
+                    current_question['answer'] = ['正确']
+                else:
+                    current_question['answer'] = ['错误']
         else:
             if current_question is not None:
                 option_text = row['内容'].strip()
@@ -34,91 +53,199 @@ def load_questions(file_path):
         questions.append(current_question)
     return questions
 
-def display_question(q, q_idx):
-    st.write(f"**题 {q_idx + 1}/30:** {q['content']}  ({q['type']}, 难度: {q['difficulty']})")
+def select_random_questions(questions, num=30):
+    """随机选择指定数量的题目"""
+    return random.sample(questions, min(num, len(questions)))
 
-    user_key = f"answer_{q_idx}"
+def initialize_session_state():
+    """初始化基础会话状态"""
+    if 'question_idx' not in st.session_state:
+        st.session_state.question_idx = 0
+    if 'user_answers' not in st.session_state:
+        st.session_state.user_answers = []
+    if 'submitted' not in st.session_state:
+        st.session_state.submitted = []
+    if 'show_results' not in st.session_state:
+        st.session_state.show_results = False
 
-    if q['type'] == '判断题':
-        user_answer = st.radio("请选择：", ['正确', '错误'], key=user_key)
-    elif q['type'] == '单选题':
-        options = [opt['text'] for opt in q['options']]
-        user_answer = st.radio("请选择：", options, key=user_key)
-    elif q['type'] == '多选题':
-        options = [opt['text'] for opt in q['options']]
-        user_answer = st.multiselect("请选择：", options, key=user_key)
-    else:
-        st.warning("未知题型")
-        return
+def display_question(questions):
+    """显示当前问题"""
+    # 确保已选择题目
+    if 'selected_questions' not in st.session_state:
+        st.session_state.selected_questions = select_random_questions(questions)
+    
+    # 确保答案数组大小匹配
+    if len(st.session_state.user_answers) != len(st.session_state.selected_questions):
+        st.session_state.user_answers = [None] * len(st.session_state.selected_questions)
+        st.session_state.submitted = [False] * len(st.session_state.selected_questions)
+    
+    question = st.session_state.selected_questions[st.session_state.question_idx]
+    
+    st.subheader(f"题 {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)}")
+    st.markdown(f"**{question['content']}**")
+    st.caption(f"分类: {question['category']} | 题型: {question['type']} | 难度: {question['difficulty']}")
 
-    if st.button("提交", key=f"submit_{q_idx}"):
-        correct = False
-        if q['type'] in ['判断题', '单选题']:
-            correct = user_answer in q['answer']
-        elif q['type'] == '多选题':
-            correct = sorted(user_answer) == sorted(q['answer'])
-
+    # 显示选项
+    if question['type'] == '判断题':
+        options = ['正确', '错误']
+        selected = st.radio("请选择答案:", options, index=None)
+        st.session_state.user_answers[st.session_state.question_idx] = selected
+        correct = st.button("提交答案")
+        
         if correct:
-            st.success("✅ 回答正确！")
-            st.session_state.score += 1
+            st.session_state.submitted[st.session_state.question_idx] = True
+            if selected == question['answer'][0]:
+                st.success("✅ 回答正确！")
+            else:
+                st.error(f"❌ 回答错误！正确答案是: {question['answer'][0]}")
+
+    elif question['type'] == '单选题':
+        options = [opt['text'] for opt in question['options']]
+        selected = st.radio("请选择答案:", options, index=None)
+        st.session_state.user_answers[st.session_state.question_idx] = selected
+        correct = st.button("提交答案")
+        
+        if correct:
+            st.session_state.submitted[st.session_state.question_idx] = True
+            if selected in question['answer']:
+                st.success("✅ 回答正确！")
+            else:
+                st.error(f"❌ 回答错误！正确答案是: {', '.join(question['answer'])}")
+
+    elif question['type'] == '多选题':
+        options = [opt['text'] for opt in question['options']]
+        selected = st.multiselect("请选择答案(可多选):", options, default=None)
+        st.session_state.user_answers[st.session_state.question_idx] = selected
+        correct = st.button("提交答案")
+        
+        if correct:
+            st.session_state.submitted[st.session_state.question_idx] = True
+            if sorted(selected) == sorted(question['answer']):
+                st.success("✅ 回答正确！")
+            else:
+                st.error(f"❌ 回答错误！正确答案是: {', '.join(question['answer'])}")
+    
+    # 导航按钮
+    col1, col2, col3 = st.columns([1,1,1])
+    with col1:
+        if st.session_state.question_idx > 0:
+            if st.button("上一题"):
+                st.session_state.question_idx -= 1
+                return True
+    with col2:
+        if st.button("重新开始"):
+            reset_quiz(questions)
+            return True
+    with col3:
+        if st.session_state.question_idx < len(st.session_state.selected_questions) - 1:
+            if st.button("下一题"):
+                st.session_state.question_idx += 1
+                return True
         else:
-            st.error(f"❌ 回答错误，正确答案是：{', '.join(q['answer'])}")
+            if st.button("查看结果"):
+                st.session_state.show_results = True
+                return True
+    
+    return False
 
-        st.session_state.answers.append({
-            'question': q['content'],
-            'your_answer': user_answer if isinstance(user_answer, str) else ', '.join(user_answer),
-            'correct_answer': ', '.join(q['answer']),
-            'result': '正确' if correct else '错误'
-        })
-
-        if st.session_state.question_idx < 29:
-            st.session_state.question_idx += 1
+def calculate_score():
+    """计算得分"""
+    if 'selected_questions' not in st.session_state:
+        return 0
+    
+    score = 0
+    for i, question in enumerate(st.session_state.selected_questions):
+        user_answer = st.session_state.user_answers[i]
+        
+        if question['type'] == '多选题':
+            if sorted(user_answer or []) == sorted(question['answer']):
+                score += 1
         else:
-            st.session_state.completed = True
+            if user_answer in question['answer']:
+                score += 1
+    
+    return score
 
-        # 用标志触发刷新，防止 streamlit 错误
-        st.session_state.trigger_next = True
+def display_results():
+    """显示测试结果"""
+    st.title("测试结果")
+    
+    score = calculate_score()
+    total = len(st.session_state.selected_questions)
+    percentage = score / total * 100 if total > 0 else 0
+    
+    st.subheader(f"得分: {score}/{total} ({percentage:.1f}%)")
+    st.progress(percentage/100)
+    
+    st.divider()
+    st.subheader("答题详情:")
+    
+    for i, question in enumerate(st.session_state.selected_questions):
+        user_answer = st.session_state.user_answers[i] or "未回答"
+        correct_answer = ", ".join(question['answer'])
+        
+        if isinstance(user_answer, list):
+            user_answer = ", ".join(user_answer)
+            
+        status = "✅" if user_answer == correct_answer else "❌"
+        
+        with st.expander(f"题 {i+1}: {question['content']} {status}"):
+            st.markdown(f"**你的答案:** {user_answer}")
+            st.markdown(f"**正确答案:** {correct_answer}")
+            st.markdown(f"**解析:** 题型: {question['type']} | 难度: {question['difficulty']}")
 
-def show_result():
-    st.header("🎉 答题完成")
-    st.success(f"你的得分：{st.session_state.score} / 30")
-    st.write(f"正确率：{st.session_state.score / 30 * 100:.2f}%")
+    if st.button("重新开始测试", use_container_width=True):
+        reset_quiz(st.session_state.questions)
+        return True
+    
+    return False
 
-    st.subheader("详细答题记录")
-    for i, record in enumerate(st.session_state.answers):
-        st.write(f"**题 {i+1}**：{record['question']}")
-        st.write(f"- 你的答案：{record['your_answer']}")
-        st.write(f"- 正确答案：{record['correct_answer']}")
-        st.write(f"- 结果：{record['result']}")
-        st.markdown("---")
-
-    if st.button("🔄 开始新一轮答题"):
-        st.session_state.clear()
-        st.experimental_rerun()
+def reset_quiz(questions):
+    """重置测试状态"""
+    keys = ['selected_questions', 'question_idx', 'user_answers', 'submitted', 'show_results']
+    for key in keys:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # 重新选择随机题目
+    st.session_state.selected_questions = select_random_questions(questions)
+    st.session_state.question_idx = 0
+    st.session_state.user_answers = [None] * len(st.session_state.selected_questions)
+    st.session_state.submitted = [False] * len(st.session_state.selected_questions)
+    st.session_state.show_results = False
 
 def main():
-    st.set_page_config(page_title="知识问答小程序", layout="centered")
-    st.title("🧠 知识问答小程序")
-
-    if "initialized" not in st.session_state:
-        st.session_state.initialized = True
-        st.session_state.question_idx = 0
-        st.session_state.score = 0
-        st.session_state.answers = []
-        st.session_state.completed = False
-        st.session_state.trigger_next = False
-        st.session_state.questions = random.sample(load_questions("questions.xlsx"), 30)
-
-    if not st.session_state.completed:
-        current_question = st.session_state.questions[st.session_state.question_idx]
-        display_question(current_question, st.session_state.question_idx)
+    """主应用"""
+    st.title("知识问答小程序")
+    
+    # 加载问题
+    if 'questions' not in st.session_state:
+        st.session_state.questions = load_questions()
+    
+    # 初始化基础会话状态
+    initialize_session_state()
+    
+    # 添加醒目的重新开始按钮
+    if st.button("🔁 重新开始测试", use_container_width=True):
+        reset_quiz(st.session_state.questions)
+    
+    # 显示内容
+    if 'show_results' in st.session_state and st.session_state.show_results:
+        if display_results():
+            # 不需要显式重新运行，Streamlit 会自动处理
+            pass
+    elif 'selected_questions' in st.session_state and st.session_state.selected_questions:
+        if display_question(st.session_state.questions):
+            # 不需要显式重新运行，Streamlit 会自动处理
+            pass
+        
+        # 显示进度
+        progress = (st.session_state.question_idx + 1) / len(st.session_state.selected_questions)
+        st.progress(progress)
+        st.caption(f"已完成: {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)} 题")
     else:
-        show_result()
-
-    # 安全触发 rerun（用于按钮回调后立即刷新页面）
-    if st.session_state.get("trigger_next", False):
-        st.session_state.trigger_next = False
-        st.experimental_rerun()
+        # 首次运行：选择题目
+        st.session_state.selected_questions = select_random_questions(st.session_state.questions)
 
 if __name__ == "__main__":
     main()
