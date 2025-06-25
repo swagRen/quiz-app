@@ -1,12 +1,24 @@
 import streamlit as st
 import pandas as pd
 import random
-import time
+import os
 
-def load_questions(file_path):
+def load_questions():
     """从Excel加载问题"""
-    # 添加时间戳参数防止缓存
-    df = pd.read_excel(file_path + f"?t={time.time()}", dtype=str).fillna('')
+    # 使用相对路径并检查文件是否存在
+    file_path = "questions.xlsx"
+    
+    # 如果文件不存在，显示错误信息
+    if not os.path.exists(file_path):
+        st.error(f"无法找到问题文件: {file_path}")
+        st.stop()
+    
+    try:
+        df = pd.read_excel(file_path, dtype=str).fillna('')
+    except Exception as e:
+        st.error(f"加载问题文件时出错: {str(e)}")
+        st.stop()
+    
     questions = []
     current_question = None
 
@@ -201,26 +213,23 @@ def main():
     """主应用"""
     st.title("知识问答小程序")
     
-    # 加载问题（添加时间戳防止缓存）
-    questions = load_questions("questions.xlsx")
-    
-    # 保存问题到会话状态，以便重置时使用
+    # 加载问题
     if 'questions' not in st.session_state:
-        st.session_state.questions = questions
+        st.session_state.questions = load_questions()
     
     # 初始化基础会话状态
     initialize_session_state()
     
     # 添加醒目的重新开始按钮
     if st.button("🔁 重新开始测试", use_container_width=True):
-        reset_quiz(questions)
+        reset_quiz(st.session_state.questions)
         st.experimental_rerun()
     
     # 显示内容
     if 'show_results' in st.session_state and st.session_state.show_results:
         display_results()
     elif 'selected_questions' in st.session_state and st.session_state.selected_questions:
-        display_question(questions)
+        display_question(st.session_state.questions)
         
         # 显示进度
         progress = (st.session_state.question_idx + 1) / len(st.session_state.selected_questions)
@@ -228,7 +237,7 @@ def main():
         st.caption(f"已完成: {st.session_state.question_idx + 1}/{len(st.session_state.selected_questions)} 题")
     else:
         # 首次运行：选择题目并重新运行
-        st.session_state.selected_questions = select_random_questions(questions)
+        st.session_state.selected_questions = select_random_questions(st.session_state.questions)
         st.experimental_rerun()
 
 if __name__ == "__main__":
